@@ -22,3 +22,11 @@ def insert_berita(judul, tanggal, sumber, link, meta_title, meta_description, se
     db.commit()
     cursor.close()  # Tutup cursor setelah dipakai
     print("Berita berhasil disimpan!")
+
+def get_all_news():
+    cursor = db.cursor(dictionary=True) 
+    sql = "SELECT * FROM berita"
+    cursor.execute(sql)
+    result = cursor.fetchall()
+    cursor.close()
+    return result 

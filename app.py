@@ -2,12 +2,14 @@ from flask import Flask, jsonify
 import joblib
 from scraper import get_news
 from model import analyze_sentiment
-from db_connection import insert_berita
+from db_connection import insert_berita, get_all_news
+from flask_cors import CORS
 
-app = Flask(__name__)  
+app = Flask(__name__)
+CORS(app)  
 
 # Endpoint untuk mengambil berita dan melakukan analisis sentimen
-@app.route("/news", methods=["GET"])
+@app.route("/", methods=["GET"])
 def get_and_analyze_news():
     print("Mengambil berita terbaru...")
     news_data = get_news()
@@ -35,6 +37,15 @@ def get_and_analyze_news():
             print(f"Error saat memproses berita: {e}")
 
     return jsonify({"news": news_data}), 200
+
+@app.route("/news", methods=["GET"])
+def index():
+    try:
+        news_data = get_all_news()  
+        return jsonify({"news": news_data}), 200  
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500  
+    
 
 if __name__ == "__main__":
     app.run(debug=True)
