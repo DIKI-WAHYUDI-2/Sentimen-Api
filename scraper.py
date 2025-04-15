@@ -5,7 +5,7 @@ from datetime import datetime
 
 # Konfigurasi SerpApi
 SERPAPI_API_KEY = "ebfdf596fb90e281a6b40f92a1b51b03558a17e2ea2b2cd4babf842712831f4a"
-QUERIES = ["ptpn v", "PTPN IV REGIONAL III", "PTPN V"]
+QUERIES = ["ptpn v", "PTPN IV REGIONAL III", "PTPN V","PTPN IV","PT Perkebunan Nusantara V"]
 SERPAPI_URL = "https://serpapi.com/search"
 
 # Fungsi untuk mengubah format tanggal
@@ -19,7 +19,7 @@ def convert_date(raw_date):
 # Fungsi untuk cek apakah berita adalah berita hari ini
 def is_today(news_date):
     today = datetime.utcnow().strftime("%Y-%m-%d")
-    return news_date == today
+    return news_date == "2025-04-14"
 
 # Fungsi untuk mengambil isi berita dari link
 def get_news_content(url):
@@ -57,7 +57,7 @@ def get_news():
             "google_domain": "google.co.id",
             "hl": "id",
             "gl": "id",
-            "tbs": "qdr:d"
+            "tbs": "2025-04-14"
         }
 
         try:
@@ -88,3 +88,5 @@ def get_news():
             print(f"Error mengambil berita untuk '{query}': {e}")
 
     return all_news
+
+
