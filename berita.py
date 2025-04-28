@@ -3,8 +3,8 @@ import datetime
 from bs4 import BeautifulSoup
 
 # Konfigurasi SerpApi
-SERPAPI_API_KEY = "ebfdf596fb90e281a6b40f92a1b51b03558a17e2ea2b2cd4babf842712831f4a"
-QUERIES = ["ptpn v", "PTPN IV REGIONAL III", "PTPN V"]
+SERPAPI_API_KEY = "f001362f93dea450ed85f03985ffaf34db4d48537b2e8172d04132cddde73710"
+QUERIES = ["mudik","prabowo"]
 SERPAPI_URL = "https://serpapi.com/search"
 
 # Ambil tanggal hari ini
@@ -15,6 +15,7 @@ def get_news():
     all_news = []
     
     for query in QUERIES:
+        print("Debugging: Queries saat ini adalah", QUERIES)
         print(f"Mengambil berita untuk query: {query}...")
 
         params = {
@@ -26,21 +27,23 @@ def get_news():
             "google_domain": "google.co.id",
             "hl": "id",
             "gl": "id",
-            "tbs": "qdr:d"  # Hanya ambil berita dalam 24 jam terakhir
+            "tbs": "qdr:w"  # Hanya ambil berita dalam 24 jam terakhir
         }
 
         try:
             response = requests.get(SERPAPI_URL, params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
-
+            print(response.json())
             news = data.get("news_results", [])
             for item in news:
                 raw_date = item.get("date", "")
 
                 # Konversi tanggal ke format YYYY-MM-DD
                 parsed_date = parse_date(raw_date)
+                print(f"Raw date: {raw_date}, Parsed date: {parsed_date}")
                 if parsed_date != TODAY:  
+                    
                     continue  # Skip berita yang bukan dari hari ini
 
                 link = item.get("link", "")

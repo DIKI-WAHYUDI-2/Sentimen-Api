@@ -6,7 +6,7 @@ from nltk.corpus import stopwords
 import nltk
 import googletrans
 from googletrans import Translator
-import textblob from textblob import TexBlob
+from textblob import TextBlob
 
 # Download stopwords jika belum tersedia
 nltk.download('stopwords')
