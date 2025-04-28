@@ -89,7 +89,9 @@ def search_news_by_title(judul):
 
 def get_sentimen_data():
     try:
+        
         cursor = db.cursor()
+
         sql = """
         SELECT sentimen, COUNT(*) as total
         FROM berita
@@ -97,12 +99,42 @@ def get_sentimen_data():
         """
         cursor.execute(sql)
         results = cursor.fetchall()
+
+        
+
+        data = []
+        for row in results:
+            
+            sentimen = row[0]
+            if not sentimen:
+                sentimen = "Tidak diketahui"
+            else:
+                sentimen = sentimen.strip().lower().capitalize()
+            data.append({"name": sentimen, "value": row[1]})
+
+        cursor.close()
+        
+        return data
+
+    except Exception as e:
+       
+        return []
+
+
+
+def get_sentimen_and_date():
+    try:
+        cursor = db.cursor()
+        sql = """
+        SELECT DATE_FORMAT(tanggal, '%Y-%m-%d') as tanggal, sentimen
+        FROM berita
+        """
+        cursor.execute(sql)
+        results = cursor.fetchall()
         db.commit()
         cursor.close()
 
-        data = [{"name": row[0].capitalize(), "value": row[1]} for row in results]
-
-        return data
+        return results
     except Exception as e:
         print(f"Error data tidak ditemukan: {e}")
 

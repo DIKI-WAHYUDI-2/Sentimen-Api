@@ -2,11 +2,12 @@ from flask import Flask, jsonify, request
 import joblib
 from scraper import get_news
 from model import analyze_sentiment
-from db_connection import insert_berita, get_news_paginated, change_sentiment_by_id,search_news_by_title,get_sentimen_data,add_berita_data, login,get_news_count
+from db_connection import insert_berita, get_news_paginated, change_sentiment_by_id,search_news_by_title,get_sentimen_data,add_berita_data, login,get_news_count,get_sentimen_and_date
 from flask_cors import CORS
 import jwt
-import datetime
+from datetime import datetime, timedelta, timezone
 import sys
+from collections import defaultdict 
 
 SECRET_KEY = 'rahasia'
 
@@ -14,10 +15,11 @@ app = Flask(__name__)
 CORS(app, origins="http://localhost:3000", supports_credentials=True)
 
 # Endpoint untuk mengambil berita dan melakukan analisis sentimen
-@app.route("/analyze", methods=["GET"])
+@app.route("/analyze", methods=["POST"])
 def get_and_analyze_news():
     print("Mengambil berita terbaru...")
-    news_data = get_news()
+    data = request.json
+    news_data = get_news(data)
 
     if not news_data:
         return jsonify({"error": "Tidak ada berita yang ditemukan."}), 404
@@ -35,15 +37,15 @@ def get_and_analyze_news():
             meta_description = news.get('meta_description', 'Deskripsi Tidak Tersedia')
             sentiment = news['sentiment']
 
-            insert_berita(title, date, source, link, meta_title, meta_description, sentiment)
+            # insert_berita(title, date, source, link, meta_title, meta_description, sentiment)
 
         except Exception as e:
             print(f"Error saat memproses berita: {e}")
 
     return jsonify({"news": news_data}), 200
 
-@app.route("/news", methods=["GET", "OPTIONS"])
-def get_news():
+@app.route("/news", methods=["GET"])
+def get_news_data():
     page = request.args.get('page', default=1, type=int) 
     limit = request.args.get('limit', default=10, type=int)
     try:
@@ -118,12 +120,64 @@ def search_news():
 @app.route("/sentimen", methods=['GET'])
 def get_sentimen():
     try:
+        
+
+        page = int(request.args.get("page", 1))
+        limit = int(request.args.get("limit", 10))
+        
+
         results = get_sentimen_data()
+        
 
         if not results:
             return jsonify({"message": "Sentimen tidak ditemukan!"}), 404  
-    
+
         return jsonify(results), 200
+    except Exception as e:
+        
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/sentimen-bulanan", methods = ['GET'])
+def get_sentimen_bulanan():
+
+    bulan_map = {
+    1: "Januari", 2: "Februari", 3: "Maret", 4: "April",
+    5: "Mei", 6: "Juni", 7: "Juli", 8: "Agustus",
+    9: "September", 10: "Oktober", 11: "November", 12: "Desember"
+    }
+
+    try:
+        data_berita = get_sentimen_and_date()
+        print(data_berita)
+        # Mengelompokkan berita per bulan dan menghitung jenis sentimen (positif, negatif, netral)
+        sentimen_per_bulan = defaultdict(lambda: {"positif": 0, "negatif": 0, "netral": 0})
+
+        for berita in data_berita:
+            tanggal = datetime.strptime(berita[0], "%Y-%m-%d")
+            bulan = tanggal.month
+            sentimen = berita[1].strip().lower() 
+
+            if sentimen == "positif":
+                sentimen_per_bulan[bulan]["positif"] += 1
+            elif sentimen == "negatif":
+                sentimen_per_bulan[bulan]["negatif"] += 1
+            else:
+                sentimen_per_bulan[bulan]["netral"] += 1
+
+        # Menyiapkan hasil untuk dikembalikan dalam format JSON sesuai permintaan
+        hasil = []
+        for bulan, sentimen_count in sentimen_per_bulan.items():
+            hasil.append({
+                "bulan": bulan_map[bulan],
+                "positif": sentimen_count["positif"],
+                "netral": sentimen_count["netral"],
+                "negatif": sentimen_count["negatif"]
+            })
+        
+        # Membungkus hasil dalam objek "per_bulan"
+        return jsonify({"per_bulan": hasil}), 200
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -144,6 +198,8 @@ def login_system():
         data = request.json
 
         result = login(data)
+        print(data)
+        print(result)
 
         if not data:
             return jsonify({"status": "error", "message": "Data tidak boleh kosong!"})
@@ -154,7 +210,7 @@ def login_system():
         # Generate token
         token = jwt.encode({
             'username': data['username'],
-            'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+            'exp': datetime.now(timezone.utc) + timedelta(hours=1)
         }, SECRET_KEY, algorithm='HS256')
 
         # Set token ke cookie
@@ -179,4 +235,4 @@ def logout():
     return response
     
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, threaded=True)
