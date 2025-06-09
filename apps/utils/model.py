@@ -1,9 +1,13 @@
 import joblib
+import os
 
+current_dir = os.path.dirname(__file__)
+svm_path = os.path.join(current_dir, "svm_model.pkl")
+vectorizer_path = os.path.join(current_dir, "vectorizer.pkl")
 # Load Model & Vectorizer
 try:
-    svm = joblib.load("./model/svm_model.pkl")
-    vectorizer = joblib.load("./model/vectorizer.pkl")
+    svm = joblib.load(svm_path)
+    vectorizer = joblib.load(vectorizer_path)
 except Exception as e:
     print(f"Error loading model: {e}")
     svm, vectorizer = None, None  
