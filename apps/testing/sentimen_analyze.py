@@ -4,6 +4,7 @@ from utils import model
 
 class TestAnalyzeSentiment(TestCase):
     def test_empty_text(self):
+        self.assertEqual(model.analyze_sentiment(""), "Tidak Diketahui")
         self.assertEqual(model.analyze_sentiment("   "), "Tidak Diketahui")
 
     @patch('utils.model.svm', None)
@@ -19,3 +20,4 @@ class TestAnalyzeSentiment(TestCase):
 
         result = model.analyze_sentiment("Ini kalimat positif")
         self.assertEqual(result, "Positif")
+
