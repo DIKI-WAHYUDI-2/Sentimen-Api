@@ -85,8 +85,8 @@ def hasilSentimen(nilai):
     return 'positif'
 
 # Load daftar kata positif & negatif
-positive_lexicon = set(pd.read_csv("../kamus/positive.tsv", sep="\t", header=None)[0])
-negative_lexicon = set(pd.read_csv("../kamus/negative.tsv", sep="\t", header=None)[0])
+positive_lexicon = set(pd.read_csv("./kamus/positive.tsv", sep="\t", header=None)[0])
+negative_lexicon = set(pd.read_csv("./kamus/negative.tsv", sep="\t", header=None)[0])
 
 # Fungsi untuk analisis sentimen
 def analyze_sentiment(text):

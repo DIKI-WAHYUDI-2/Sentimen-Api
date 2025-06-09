@@ -1,10 +1,11 @@
 import requests
+import pandas as pd
 from bs4 import BeautifulSoup
 from datetime import datetime
 
 # Konfigurasi SerpApi
 SERPAPI_API_KEY = "ebfdf596fb90e281a6b40f92a1b51b03558a17e2ea2b2cd4babf842712831f4a"
-QUERIES = ["ptpn v", "PTPN IV REGIONAL III", "PTPN V", "PTPN IV","PT Perkebunan Nusantara V"]
+QUERIES = ["ptpn v", "PTPN IV REGIONAL III", "PTPN V"]
 SERPAPI_URL = "https://serpapi.com/search"
 
 # Fungsi untuk mengubah format tanggal
@@ -16,9 +17,9 @@ def convert_date(raw_date):
         return "0000-00-00"
 
 # Fungsi untuk cek apakah berita adalah berita hari ini
-def is_today(news_date, target_date):
+def is_today(news_date):
     today = datetime.utcnow().strftime("%Y-%m-%d")
-    return news_date == target_date
+    return news_date == today
 
 # Fungsi untuk mengambil isi berita dari link
 def get_news_content(url):
@@ -43,8 +44,7 @@ def get_news_content(url):
         return {"meta_title": "Error", "meta_description": "Error"}
 
 # Fungsi untuk mengambil berita dari SerpApi
-def get_news(data):
-    target_date = data.get("tanggal", datetime.utcnow().strftime("%Y-%m-%d"))
+def get_news():
     all_news = []
     for query in QUERIES:
         print(f"Mengambil berita untuk query: {query}...")
@@ -57,7 +57,7 @@ def get_news(data):
             "google_domain": "google.co.id",
             "hl": "id",
             "gl": "id",
-            "tbs": f"cdr:1,cd_min:{target_date},cd_max:{target_date}"
+            "tbs": "qdr:d"
         }
 
         try:
@@ -71,7 +71,7 @@ def get_news(data):
                 formatted_date = convert_date(raw_date)
 
                 # Hanya simpan berita hari ini
-                if is_today(formatted_date, target_date):
+                if is_today(formatted_date):
                     link = item.get("link", "")
                     content_data = get_news_content(link) if link.startswith("http") else {"meta_title": "Tidak ada", "meta_description": "Tidak ada"}
 

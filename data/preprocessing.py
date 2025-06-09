@@ -6,7 +6,7 @@ from nltk.corpus import stopwords
 import nltk
 import googletrans
 from googletrans import Translator
-# import textblob from textblob import TexBlob
+import textblob from textblob import TexBlob
 
 # Download stopwords jika belum tersedia
 nltk.download('stopwords')
@@ -58,8 +58,8 @@ def remove_stopwords(words):
     return [word for word in words if word not in STOPWORDS]
 
 # Load daftar kata positif & negatif
-positive_lexicon = set(pd.read_csv("../kamus/positive.tsv", sep="\t", header=None)[0])
-negative_lexicon = set(pd.read_csv("../kamus/negative.tsv", sep="\t", header=None)[0])
+positive_lexicon = set(pd.read_csv("./kamus/positive.tsv", sep="\t", header=None)[0])
+negative_lexicon = set(pd.read_csv("./kamus/negative.tsv", sep="\t", header=None)[0])
 
 # Fungsi untuk analisis sentimen
 def analyze_sentiment(text):

@@ -15,8 +15,8 @@ import joblib
 # df_train = df[sheet_names[0]]
 # df_test = df[sheet_names[1]]
 
-df_train = pd.read_csv("../data/train_data.csv")
-df_test = pd.read_csv("../data/test_data.csv")
+df_train = pd.read_csv("./data/train_data.csv")  
+df_test = pd.read_csv("./data/test_data.csv")  
 
 # Gabungkan judul dan isi berita sebagai fitur
 X_train = df_train["title"]
