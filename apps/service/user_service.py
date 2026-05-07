@@ -1,5 +1,5 @@
 from apps.repositories.users_repository import UserRepository
-from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, get_jwt_identity
+from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt_identity
 
 class UserService:
 
@@ -27,7 +27,6 @@ class UserService:
     @staticmethod
     def refresh_token():
         current_user = get_jwt_identity()
-        print("JWT IDENTITY:" + current_user)
         if not current_user:
             return {
                 "status": "error",

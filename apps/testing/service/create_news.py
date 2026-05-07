@@ -1,4 +1,4 @@
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 from unittest import TestCase
 from service.news_service import NewsService
 
@@ -9,8 +9,6 @@ class TestCreateNews(TestCase):
             'tanggal': '2025-01-15',
             'sumber': 'Test Source',
             'link': 'https://test.com',
-            'meta_title': 'Test Meta Title',
-            'meta_description': 'Test Meta Description',
             'sentimen': 'positif'
         }
 
@@ -27,13 +25,12 @@ class TestCreateNews(TestCase):
 
         # Assert
         mock_news_class.assert_called_once_with(
-            judul=self.sample_news_data['judul'],
-            tanggal=self.sample_news_data['tanggal'],
-            sumber=self.sample_news_data['sumber'],
-            link=self.sample_news_data['link'],
-            meta_title=self.sample_news_data['meta_title'],
-            meta_description=self.sample_news_data['meta_description'],
-            sentimen=self.sample_news_data['sentimen']
+            title=self.sample_news_data['judul'],
+            published_at=ANY,
+            source=self.sample_news_data['sumber'],
+            url=self.sample_news_data['link'],
+            content=None,
+            sentiment=self.sample_news_data['sentimen']
         )
         mock_repo.save.assert_called_once_with(mock_news_instance)
         self.assertEqual(result, mock_news_instance)

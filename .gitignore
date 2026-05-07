@@ -1,0 +1,16 @@
+.env
+
+__pycache__/
+*.pyc
+.idea/
+
+logs/
+output/
+
+model/
+*.safetensors
+*.bin
+*.pt
+*.pth
+
+data/dataset-berita.xlsx

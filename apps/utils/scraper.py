@@ -1,90 +1,541 @@
+import logging
+import os
+import re
+from datetime import datetime, timedelta, timezone
+import json
+from urllib.parse import urlparse
+
 import requests
-import pandas as pd
 from bs4 import BeautifulSoup
-from datetime import datetime
+from dotenv import load_dotenv
+from requests.exceptions import HTTPError, SSLError
 
-# Konfigurasi SerpApi
-SERPAPI_API_KEY = "ebfdf596fb90e281a6b40f92a1b51b03558a17e2ea2b2cd4babf842712831f4a"
-QUERIES = ["ptpn v", "PTPN IV REGIONAL III", "PTPN V"]
+load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+SERPAPI_API_KEY = os.environ.get("SERPAPI_API_KEY")
 SERPAPI_URL = "https://serpapi.com/search"
+SERPAPI_ENGINE = "google_news_light"
+SEARCH_TOPICS = [
+    "PTPN IV Regional III",
+    "PalmCo",
+    "Holding Perkebunan Nusantara",
+    "PT Perkebunan Nusantara",
+]
 
-# Fungsi untuk mengubah format tanggal
-def convert_date(raw_date):
+RELEVANT_TERMS = [
+    "ptpn iv regional iii",
+    "ptpn v",
+]
+REQUEST_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/123.0.0.0 Safari/537.36"
+    ),
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,"
+        "image/apng,*/*;q=0.8"
+    ),
+    "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+}
+CONTENT_SELECTORS = [
+    "article",
+    "[itemprop='articleBody']",
+    ".article-content",
+    ".post-content",
+    ".entry-content",
+    ".content",
+    "main",
+]
+MAX_RANGE_DAYS = 31
+SERPAPI_PAGE_SIZE = 10
+MAX_SERPAPI_PAGES = 10
+INDONESIAN_MONTHS = {
+    "januari": 1,
+    "februari": 2,
+    "maret": 3,
+    "april": 4,
+    "mei": 5,
+    "juni": 6,
+    "juli": 7,
+    "agustus": 8,
+    "september": 9,
+    "oktober": 10,
+    "november": 11,
+    "desember": 12,
+}
+ARTICLE_DATE_META_SELECTORS = [
+    ("meta", {"property": "article:published_time"}, "content"),
+    ("meta", {"name": "article:published_time"}, "content"),
+    ("meta", {"property": "og:published_time"}, "content"),
+    ("meta", {"name": "pubdate"}, "content"),
+    ("meta", {"name": "publishdate"}, "content"),
+    ("meta", {"name": "publish-date"}, "content"),
+    ("meta", {"name": "parsely-pub-date"}, "content"),
+    ("meta", {"name": "date"}, "content"),
+]
+
+
+def normalize_date_input(raw_value):
+    if raw_value is None:
+        return None
     try:
-        date_obj = datetime.strptime(raw_date, "%m/%d/%Y, %I:%M %p, %z UTC")
-        return date_obj.strftime("%Y-%m-%d")
+        return datetime.strptime(raw_value, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise ValueError("Date format must be YYYY-MM-DD") from exc
+
+
+def get_today_date():
+    return datetime.now(timezone.utc).date()
+
+
+def validate_date_range(start_date, end_date):
+    today = get_today_date()
+
+    if start_date > today:
+        raise ValueError("start_date cannot be in the future")
+
+    if end_date > today:
+        raise ValueError("end_date cannot be in the future")
+
+    if start_date > end_date:
+        raise ValueError("start_date cannot be later than end_date")
+
+    range_length = (end_date - start_date).days + 1
+    if range_length > MAX_RANGE_DAYS:
+        raise ValueError(f"Date range cannot exceed {MAX_RANGE_DAYS} days")
+
+
+def resolve_date_range(search_params):
+    start_date_value = search_params.get("start_date")
+    end_date_value = search_params.get("end_date")
+
+    if not start_date_value and not end_date_value:
+        return None, None
+
+    if not start_date_value:
+        raise ValueError("start_date is required")
+
+    parsed_start = normalize_date_input(start_date_value)
+    parsed_end = normalize_date_input(end_date_value) if end_date_value else parsed_start
+
+    validate_date_range(parsed_start, parsed_end)
+    return parsed_start, parsed_end
+
+
+def resolve_search_queries(search_params):
+    selected_keyword = (search_params.get("keyword") or "").strip()
+    if not selected_keyword:
+        return [SEARCH_TOPICS[0]]
+    if selected_keyword not in SEARCH_TOPICS:
+        raise ValueError("Keyword scraping tidak valid")
+    return [selected_keyword]
+
+
+def parse_serpapi_date(raw_value):
+    if not raw_value:
+        return None
+
+    for fmt in ("%m/%d/%Y, %I:%M %p, %z UTC", "%m/%d/%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(raw_value, fmt).date()
+        except ValueError:
+            continue
+
+    lowered = raw_value.strip().lower()
+    cleaned = re.sub(r"\s+", " ", lowered.replace(",", " ")).strip()
+    if lowered == "yesterday":
+        return datetime.now(timezone.utc).date() - timedelta(days=1)
+    if cleaned == "kemarin":
+        return datetime.now(timezone.utc).date() - timedelta(days=1)
+
+    indo_absolute_match = re.search(
+        r"(?:(?:senin|selasa|rabu|kamis|jumat|sabtu|minggu)\s+)?(\d{1,2})\s+"
+        r"(januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember)\s+"
+        r"(\d{4})",
+        cleaned,
+    )
+    if indo_absolute_match:
+        day = int(indo_absolute_match.group(1))
+        month = INDONESIAN_MONTHS[indo_absolute_match.group(2)]
+        year = int(indo_absolute_match.group(3))
+        return datetime(year, month, day).date()
+
+    match = re.search(r"(\d+)\s+(minute|hour|day|week|month|year)s?\s+ago", lowered)
+    if match:
+        amount = int(match.group(1))
+        unit = match.group(2)
+    else:
+        indo_relative_match = re.search(
+            r"(\d+)\s+(menit|jam|hari|minggu|bulan|tahun)\s+lalu",
+            cleaned,
+        )
+        if not indo_relative_match:
+            return None
+        amount = int(indo_relative_match.group(1))
+        unit = {
+            "menit": "minute",
+            "jam": "hour",
+            "hari": "day",
+            "minggu": "week",
+            "bulan": "month",
+            "tahun": "year",
+        }[indo_relative_match.group(2)]
+
+    now = datetime.now(timezone.utc)
+
+    offsets = {
+        "minute": timedelta(minutes=amount),
+        "hour": timedelta(hours=amount),
+        "day": timedelta(days=amount),
+        "week": timedelta(weeks=amount),
+        "month": timedelta(days=30 * amount),
+        "year": timedelta(days=365 * amount),
+    }
+    return (now - offsets[unit]).date()
+
+
+def parse_article_date(raw_value):
+    if not raw_value:
+        return None
+
+    cleaned = re.sub(r"\s+", " ", str(raw_value).strip())
+    lowered = cleaned.lower()
+
+    iso_candidate = cleaned.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(iso_candidate).date()
     except ValueError:
-        return "0000-00-00"
+        pass
 
-# Fungsi untuk cek apakah berita adalah berita hari ini
-def is_today(news_date):
-    today = datetime.utcnow().strftime("%Y-%m-%d")
-    return news_date == today
+    for fmt in (
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d",
+        "%d-%m-%Y",
+        "%d/%m/%Y",
+        "%d %B %Y",
+        "%d %B %Y %H:%M",
+        "%d %B %Y %H:%M WIB",
+        "%d %b %Y",
+    ):
+        try:
+            return datetime.strptime(cleaned, fmt).date()
+        except ValueError:
+            continue
 
-# Fungsi untuk mengambil isi berita dari link
-def get_news_content(url):
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.0.0 Safari/537.36"
-        }
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, "html.parser")
+    indo_absolute_match = re.search(
+        r"(?:(?:senin|selasa|rabu|kamis|jumat|sabtu|minggu)\s*,?\s*)?(\d{1,2})\s+"
+        r"(januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember)\s+"
+        r"(\d{4})",
+        lowered,
+    )
+    if indo_absolute_match:
+        day = int(indo_absolute_match.group(1))
+        month = INDONESIAN_MONTHS[indo_absolute_match.group(2)]
+        year = int(indo_absolute_match.group(3))
+        return datetime(year, month, day).date()
 
-        meta_title = soup.title.string.strip() if soup.title else "Title tidak ditemukan"
-        meta_desc_tag = soup.find("meta", attrs={"name": "description"})
-        meta_description = meta_desc_tag["content"].strip() if meta_desc_tag else "Deskripsi tidak ditemukan"
+    slash_match = re.search(r"(\d{4})/(\d{2})/(\d{2})", cleaned)
+    if slash_match:
+        year, month, day = map(int, slash_match.groups())
+        return datetime(year, month, day).date()
 
-        return {
-            "meta_title": meta_title,
-            "meta_description": meta_description
-        }
-    except requests.exceptions.RequestException as e:
-        print(f"Error scraping {url}: {e}")
-        return {"meta_title": "Error", "meta_description": "Error"}
+    return None
 
-# Fungsi untuk mengambil berita dari SerpApi
-def get_news():
-    all_news = []
-    for query in QUERIES:
-        print(f"Mengambil berita untuk query: {query}...")
-        params = {
-            "engine": "google_news",
-            "q": query,
-            "api_key": SERPAPI_API_KEY,
-            "location_requested": "Riau, Indonesia",
-            "location_used": "Riau, Indonesia",
-            "google_domain": "google.co.id",
-            "hl": "id",
-            "gl": "id",
-            "tbs": "qdr:d"
-        }
+
+def _extract_date_from_json_ld(soup):
+    for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        raw_text = script.string or script.get_text(strip=True)
+        if not raw_text:
+            continue
 
         try:
-            response = requests.get(SERPAPI_URL, params=params, timeout=10)
+            payload = json.loads(raw_text)
+        except json.JSONDecodeError:
+            continue
+
+        candidates = payload if isinstance(payload, list) else [payload]
+        while candidates:
+            candidate = candidates.pop(0)
+            if isinstance(candidate, list):
+                candidates.extend(candidate)
+                continue
+            if not isinstance(candidate, dict):
+                continue
+
+            for key in ("datePublished", "dateCreated", "uploadDate", "dateModified"):
+                parsed = parse_article_date(candidate.get(key))
+                if parsed:
+                    return parsed
+
+            graph = candidate.get("@graph")
+            if graph:
+                candidates.append(graph)
+
+    return None
+
+
+def extract_article_date(soup, url=None):
+    for tag_name, attrs, value_key in ARTICLE_DATE_META_SELECTORS:
+        tag = soup.find(tag_name, attrs=attrs)
+        if tag and tag.get(value_key):
+            parsed = parse_article_date(tag.get(value_key))
+            if parsed:
+                return parsed
+
+    time_tag = soup.find("time")
+    if time_tag:
+        for value in (time_tag.get("datetime"), time_tag.get_text(" ", strip=True)):
+            parsed = parse_article_date(value)
+            if parsed:
+                return parsed
+
+    parsed_json_ld = _extract_date_from_json_ld(soup)
+    if parsed_json_ld:
+        return parsed_json_ld
+
+    text_candidates = soup.find_all(
+        string=re.compile(
+            r"(\d{1,2}\s+(januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember)\s+\d{4})|(\d{4}/\d{2}/\d{2})",
+            re.IGNORECASE,
+        )
+    )
+    for candidate in text_candidates[:20]:
+        parsed = parse_article_date(candidate)
+        if parsed:
+            return parsed
+
+    if url:
+        parsed = parse_article_date(url)
+        if parsed:
+            return parsed
+
+    return None
+
+
+def is_date_in_range(candidate_date, start_date, end_date):
+    if start_date is None and end_date is None:
+        return True
+    if candidate_date is None:
+        return False
+    return start_date <= candidate_date <= end_date
+
+
+def normalize_text(value):
+    return re.sub(r"\s+", " ", (value or "").strip().lower())
+
+
+def is_relevant_news_item(title, source, content):
+    haystack = " ".join(
+        [
+            normalize_text(title),
+            normalize_text(source),
+            normalize_text(content),
+        ]
+    )
+    return any(term in haystack for term in RELEVANT_TERMS)
+
+
+def _extract_text_from_container(container):
+    if not container:
+        return None
+    paragraphs = [paragraph.get_text(" ", strip=True) for paragraph in container.find_all("p")]
+    content = " ".join(text for text in paragraphs if len(text) > 40).strip()
+    return content or None
+
+
+def extract_metadata(url, session=None):
+    if not url or not url.startswith("http"):
+        return {"content": None, "published_at": None}
+
+    request_session = session or requests.Session()
+    fallback_published_at = parse_article_date(url)
+
+    def _request_article(verify=True, extra_headers=None):
+        headers = dict(REQUEST_HEADERS)
+        if extra_headers:
+            headers.update(extra_headers)
+        return request_session.get(url, headers=headers, timeout=20, verify=verify)
+
+    response = None
+    try:
+        response = _request_article()
+        response.raise_for_status()
+    except SSLError:
+        logger.warning("SSL verification failed for article, retrying without certificate verification")
+        try:
+            requests.packages.urllib3.disable_warnings()  # type: ignore[attr-defined]
+            response = _request_article(verify=False)
             response.raise_for_status()
-            data = response.json()
-            news = data.get("news_results", [])
+        except requests.exceptions.RequestException:
+            logger.warning("Failed to fetch article details after SSL retry", exc_info=True)
+            return {
+                "content": None,
+                "published_at": fallback_published_at.isoformat() if fallback_published_at else None,
+            }
+    except HTTPError as exc:
+        status_code = exc.response.status_code if exc.response is not None else None
+        if status_code == 403:
+            logger.warning("Article request returned 403, retrying with referer headers")
+            hostname = urlparse(url).netloc
+            retry_headers = {
+                "Referer": f"https://{hostname}/",
+                "Upgrade-Insecure-Requests": "1",
+            }
+            try:
+                response = _request_article(extra_headers=retry_headers)
+                response.raise_for_status()
+            except requests.exceptions.RequestException:
+                logger.warning("Failed to fetch article details after 403 retry", exc_info=True)
+                return {
+                    "content": None,
+                    "published_at": fallback_published_at.isoformat() if fallback_published_at else None,
+                }
+        else:
+            logger.warning("Failed to fetch article details", exc_info=True)
+            return {
+                "content": None,
+                "published_at": fallback_published_at.isoformat() if fallback_published_at else None,
+            }
+    except requests.exceptions.RequestException:
+        logger.warning("Failed to fetch article details", exc_info=True)
+        return {
+            "content": None,
+            "published_at": fallback_published_at.isoformat() if fallback_published_at else None,
+        }
 
-            for item in news:
-                raw_date = item.get("date", "")
-                formatted_date = convert_date(raw_date)
+    soup = BeautifulSoup(response.text, "html.parser")
+    published_at = extract_article_date(soup, url=url)
 
-                # Hanya simpan berita hari ini
-                if is_today(formatted_date):
-                    link = item.get("link", "")
-                    content_data = get_news_content(link) if link.startswith("http") else {"meta_title": "Tidak ada", "meta_description": "Tidak ada"}
+    for tag_name in ("script", "style", "noscript", "iframe", "footer", "header"):
+        for tag in soup.find_all(tag_name):
+            tag.decompose()
 
-                    all_news.append({
-                        "title": item.get("title", ""),
-                        "date": formatted_date,
-                        "source": item.get("source", "Tidak diketahui"),
-                        "link": link,
-                        "meta_title": content_data["meta_title"],
-                        "meta_description": content_data["meta_description"]
-                    })
+    content = None
+    for selector in CONTENT_SELECTORS:
+        content = _extract_text_from_container(soup.select_one(selector))
+        if content:
+            break
 
-        except requests.exceptions.RequestException as e:
-            print(f"Error mengambil berita untuk '{query}': {e}")
+    if not content:
+        paragraphs = [paragraph.get_text(" ", strip=True) for paragraph in soup.find_all("p")]
+        content = " ".join(text for text in paragraphs if len(text) > 40).strip() or None
 
-    return all_news
+    return {
+        "content": content,
+        "published_at": published_at.isoformat() if published_at else None,
+    }
+
+
+def build_search_params(query, start_date, end_date, start=0):
+    final_query = query
+    if SERPAPI_ENGINE == "google_news_light" and start_date and end_date:
+        before_date = end_date + timedelta(days=1)
+        final_query = f"{query} after:{start_date.isoformat()} before:{before_date.isoformat()}"
+
+    params = {
+        "engine": SERPAPI_ENGINE,
+        "q": final_query,
+        "api_key": SERPAPI_API_KEY,
+        "location": "Riau, Indonesia",
+        "google_domain": "google.com",
+        "hl": "id",
+        "gl": "id",
+        "lr": "lang_id",
+        "device": "desktop",
+        "no_cache": "true",
+        "start": start,
+    }
+
+    # Google News Light docs do not expose an official date-range parameter,
+    # so we keep range filtering in application code after fetching results.
+    if SERPAPI_ENGINE == "google_news":
+        params["tbs"] = f"cdr:1,cd_min:{start_date.isoformat()},cd_max:{(end_date + timedelta(days=1)).isoformat()}"
+
+    return params
+
+
+def get_news(search_params):
+    if not SERPAPI_API_KEY:
+        raise ValueError("SERPAPI_API_KEY is not configured")
+
+    start_date, end_date = resolve_date_range(search_params)
+    search_queries = resolve_search_queries(search_params)
+    request_session = requests.Session()
+    seen_keys = set()
+    results = []
+
+    for query in search_queries:
+        logger.info("Fetching news from SerpAPI", extra={"query": query})
+        seen_query_page_keys = set()
+        for page_index in range(MAX_SERPAPI_PAGES):
+            start = page_index * SERPAPI_PAGE_SIZE
+            try:
+                response = request_session.get(
+                    SERPAPI_URL,
+                    params=build_search_params(query, start_date, end_date, start=start),
+                    timeout=20,
+                )
+                response.raise_for_status()
+            except requests.exceptions.RequestException:
+                logger.warning(
+                    "Failed to fetch SerpAPI results",
+                    exc_info=True,
+                    extra={"query": query, "start": start},
+                )
+                break
+
+            items = response.json().get("news_results", [])
+            if not items:
+                logger.info("No more SerpAPI results for query", extra={"query": query, "start": start})
+                break
+
+            new_items_in_page = 0
+            for item in items:
+                url = item.get("link", "")
+                title = item.get("title", "")
+                page_key = url or normalize_text(title)
+                if page_key in seen_query_page_keys:
+                    continue
+                seen_query_page_keys.add(page_key)
+                new_items_in_page += 1
+
+                metadata = extract_metadata(url, session=request_session)
+                raw_source = item.get("source", "Unknown source")
+                source_name = raw_source.get("name") if isinstance(raw_source, dict) else str(raw_source)
+                content = metadata.get("content")
+                article_published_date = parse_article_date(metadata.get("published_at"))
+                serpapi_published_date = parse_serpapi_date(item.get("date", ""))
+                published_date = article_published_date or serpapi_published_date
+
+                if not is_date_in_range(published_date, start_date, end_date):
+                    continue
+
+                if not is_relevant_news_item(title, source_name, content):
+                    continue
+
+                dedupe_key = url or normalize_text(title)
+                if dedupe_key in seen_keys:
+                    continue
+
+                results.append(
+                    {
+                        "title": title,
+                        "source": source_name,
+                        "date": published_date.isoformat() if published_date else None,
+                        "url": url,
+                        "content": content,
+                    }
+                )
+                seen_keys.add(dedupe_key)
+
+            if len(items) < SERPAPI_PAGE_SIZE or new_items_in_page == 0:
+                break
+
+    logger.info("Scraper completed", extra={"status_code": len(results)})
+    return results

@@ -6,13 +6,12 @@ from apps.models.news import News
 class TestSearchNews(TestCase):
     def setUp(self):
         self.sample_news_object = News(
-            judul='Test Judul',
-            tanggal='2025-01-15',
-            sumber='Test Source',
-            link='https://test.com',
-            meta_title='Test Meta Title',
-            meta_description='Test Meta Description',
-            sentimen='positif'
+            title='Test Judul',
+            published_at='2025-01-15',
+            source='Test Source',
+            url='https://test.com',
+            content=None,
+            sentiment='positif'
         )
 
     @patch('service.news_service.NewsRepository')

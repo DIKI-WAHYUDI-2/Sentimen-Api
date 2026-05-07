@@ -1,6 +1,10 @@
-from apps.models.user import User
 import bcrypt
+import logging
+
 from apps.app import db
+from apps.models.user import User
+
+logger = logging.getLogger(__name__)
 
 class UserRepository:
 
@@ -22,22 +26,51 @@ class UserRepository:
 
     @staticmethod
     def save(data):
-        user = User(data)
-        db.session.add(user)
-        db.session.commit()
-        return user
+        user = User(
+            username=data.get('username'),
+            password=data.get('password')
+        )
+        try:
+            db.session.add(user)
+            db.session.commit()
+            logger.debug("User saved successfully")
+            return user
+        except Exception:
+            db.session.rollback()
+            logger.exception("Failed to save user")
+            raise
 
     @staticmethod
     def update(id, data):
         user = User.query.get(id)
-        user.update(data)
-        db.session.commit()
-        return user
+        if not user:
+            return None
+
+        user.username = data.get('username', user.username)
+        user.password = data.get('password', user.password)
+
+        try:
+            db.session.commit()
+            logger.debug("User updated successfully", extra={"user_id": id})
+            return user
+        except Exception:
+            db.session.rollback()
+            logger.exception("Failed to update user", extra={"user_id": id})
+            raise
 
     @staticmethod
     def delete_by_username(username):
         user = User.query.filter_by(username=username).first()
-        db.session.delete(user)
-        db.session.commit()
-        return user
+        if not user:
+            return None
+
+        try:
+            db.session.delete(user)
+            db.session.commit()
+            logger.debug("User deleted successfully")
+            return user
+        except Exception:
+            db.session.rollback()
+            logger.exception("Failed to delete user")
+            raise
 

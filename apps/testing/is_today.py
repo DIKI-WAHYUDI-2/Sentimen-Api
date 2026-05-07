@@ -9,10 +9,10 @@ class TestIsToday   (TestCase):
         # Mock datetime.utcnow() untuk selalu mengembalikan tanggal tertentu
         with patch("utils.scraper.datetime") as mock_datetime:
             mock_datetime.utcnow.return_value = datetime(2023, 10, 5)
-            assert is_today("2023-10-05") is True
+            assert is_today("2023-10-05","2023-10-05") is True
 
 
     def test_is_today_false(sefl):
         with patch("utils.scraper.datetime") as mock_datetime:
             mock_datetime.utcnow.return_value = datetime(2023, 10, 5)
-            assert is_today("2023-10-04") is False
+            assert is_today("2023-10-05","2023-10-04") is False
