@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 SERPAPI_API_KEY = os.environ.get("SERPAPI_API_KEY")
 SERPAPI_URL = "https://serpapi.com/search"
-SERPAPI_ENGINE = "google_news_light"
+SERPAPI_ENGINE = "google"
 SEARCH_TOPICS = [
     "PTPN IV Regional III",
     "PalmCo",
@@ -137,66 +137,30 @@ def resolve_search_queries(search_params):
 
 
 def parse_serpapi_date(raw_value):
+    """Parse absolute date strings returned by Google Search engine (via SerpAPI).
+
+    Google Search engine always returns absolute dates, so we only handle
+    absolute formats. The primary fields from the API are:
+      - ``published_at``: e.g. "2026-02-18 08:00:00 UTC"
+      - ``date``        : e.g. "18 Feb 2026"
+    """
     if not raw_value:
         return None
 
-    for fmt in ("%m/%d/%Y, %I:%M %p, %z UTC", "%m/%d/%Y", "%Y-%m-%d"):
+    # Priority: published_at format first, then date field format, then fallbacks
+    for fmt in (
+        "%Y-%m-%d %H:%M:%S UTC",  # "2026-02-18 08:00:00 UTC"  <- published_at
+        "%d %b %Y",               # "18 Feb 2026"              <- date
+        "%m/%d/%Y",
+        "%Y-%m-%d",
+    ):
         try:
-            return datetime.strptime(raw_value, fmt).date()
+            return datetime.strptime(raw_value.strip(), fmt).date()
         except ValueError:
             continue
 
-    lowered = raw_value.strip().lower()
-    cleaned = re.sub(r"\s+", " ", lowered.replace(",", " ")).strip()
-    if lowered == "yesterday":
-        return datetime.now(timezone.utc).date() - timedelta(days=1)
-    if cleaned == "kemarin":
-        return datetime.now(timezone.utc).date() - timedelta(days=1)
-
-    indo_absolute_match = re.search(
-        r"(?:(?:senin|selasa|rabu|kamis|jumat|sabtu|minggu)\s+)?(\d{1,2})\s+"
-        r"(januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember)\s+"
-        r"(\d{4})",
-        cleaned,
-    )
-    if indo_absolute_match:
-        day = int(indo_absolute_match.group(1))
-        month = INDONESIAN_MONTHS[indo_absolute_match.group(2)]
-        year = int(indo_absolute_match.group(3))
-        return datetime(year, month, day).date()
-
-    match = re.search(r"(\d+)\s+(minute|hour|day|week|month|year)s?\s+ago", lowered)
-    if match:
-        amount = int(match.group(1))
-        unit = match.group(2)
-    else:
-        indo_relative_match = re.search(
-            r"(\d+)\s+(menit|jam|hari|minggu|bulan|tahun)\s+lalu",
-            cleaned,
-        )
-        if not indo_relative_match:
-            return None
-        amount = int(indo_relative_match.group(1))
-        unit = {
-            "menit": "minute",
-            "jam": "hour",
-            "hari": "day",
-            "minggu": "week",
-            "bulan": "month",
-            "tahun": "year",
-        }[indo_relative_match.group(2)]
-
-    now = datetime.now(timezone.utc)
-
-    offsets = {
-        "minute": timedelta(minutes=amount),
-        "hour": timedelta(hours=amount),
-        "day": timedelta(days=amount),
-        "week": timedelta(weeks=amount),
-        "month": timedelta(days=30 * amount),
-        "year": timedelta(days=365 * amount),
-    }
-    return (now - offsets[unit]).date()
+    logger.warning("parse_serpapi_date: unrecognized date format", extra={"raw_value": raw_value})
+    return None
 
 
 def parse_article_date(raw_value):
@@ -235,15 +199,21 @@ def parse_article_date(raw_value):
         lowered,
     )
     if indo_absolute_match:
-        day = int(indo_absolute_match.group(1))
-        month = INDONESIAN_MONTHS[indo_absolute_match.group(2)]
-        year = int(indo_absolute_match.group(3))
-        return datetime(year, month, day).date()
+        try:
+            day = int(indo_absolute_match.group(1))
+            month = INDONESIAN_MONTHS[indo_absolute_match.group(2)]
+            year = int(indo_absolute_match.group(3))
+            return datetime(year, month, day).date()
+        except ValueError:
+            pass
 
     slash_match = re.search(r"(\d{4})/(\d{2})/(\d{2})", cleaned)
     if slash_match:
-        year, month, day = map(int, slash_match.groups())
-        return datetime(year, month, day).date()
+        try:
+            year, month, day = map(int, slash_match.groups())
+            return datetime(year, month, day).date()
+        except ValueError:
+            pass
 
     return None
 
@@ -433,29 +403,24 @@ def extract_metadata(url, session=None):
 
 
 def build_search_params(query, start_date, end_date, start=0):
-    final_query = query
-    if SERPAPI_ENGINE == "google_news_light" and start_date and end_date:
-        before_date = end_date + timedelta(days=1)
-        final_query = f"{query} after:{start_date.isoformat()} before:{before_date.isoformat()}"
-
     params = {
         "engine": SERPAPI_ENGINE,
-        "q": final_query,
+        "q": query,
         "api_key": SERPAPI_API_KEY,
-        "location": "Riau, Indonesia",
-        "google_domain": "google.com",
+        "location": "Indonesia",
+        "google_domain": "google.co.id",
         "hl": "id",
         "gl": "id",
-        "lr": "lang_id",
+        "tbm": "nws",
         "device": "desktop",
         "no_cache": "true",
         "start": start,
     }
 
-    # Google News Light docs do not expose an official date-range parameter,
-    # so we keep range filtering in application code after fetching results.
-    if SERPAPI_ENGINE == "google_news":
-        params["tbs"] = f"cdr:1,cd_min:{start_date.isoformat()},cd_max:{(end_date + timedelta(days=1)).isoformat()}"
+    if start_date and end_date:
+        cd_min = start_date.strftime("%m/%d/%Y")
+        cd_max = end_date.strftime("%m/%d/%Y")
+        params["tbs"] = f"cdr:1,cd_min:{cd_min},cd_max:{cd_max}"
 
     return params
 
@@ -473,7 +438,8 @@ def get_news(search_params):
     for query in search_queries:
         logger.info("Fetching news from SerpAPI", extra={"query": query})
         seen_query_page_keys = set()
-        for page_index in range(MAX_SERPAPI_PAGES):
+        page_index = 0
+        while True:
             start = page_index * SERPAPI_PAGE_SIZE
             try:
                 response = request_session.get(
@@ -506,11 +472,14 @@ def get_news(search_params):
                 new_items_in_page += 1
 
                 metadata = extract_metadata(url, session=request_session)
+                # Google Search engine returns source as a plain string
                 raw_source = item.get("source", "Unknown source")
-                source_name = raw_source.get("name") if isinstance(raw_source, dict) else str(raw_source)
+                source_name = str(raw_source) if raw_source else "Unknown source"
                 content = metadata.get("content")
                 article_published_date = parse_article_date(metadata.get("published_at"))
-                serpapi_published_date = parse_serpapi_date(item.get("date", ""))
+                # Prefer published_at from SerpAPI (absolute ISO-like format) over date field
+                serpapi_raw_date = item.get("published_at") or item.get("date", "")
+                serpapi_published_date = parse_serpapi_date(serpapi_raw_date)
                 published_date = article_published_date or serpapi_published_date
 
                 if not is_date_in_range(published_date, start_date, end_date):
@@ -536,6 +505,8 @@ def get_news(search_params):
 
             if len(items) < SERPAPI_PAGE_SIZE or new_items_in_page == 0:
                 break
+
+            page_index += 1
 
     logger.info("Scraper completed", extra={"status_code": len(results)})
     return results
