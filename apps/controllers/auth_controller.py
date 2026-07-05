@@ -1,8 +1,8 @@
 import logging
 
-from flask import make_response
+from flask import make_response, jsonify
 from flask_restful import Resource, reqparse
-from flask_jwt_extended import get_jwt, set_access_cookies, set_refresh_cookies, unset_jwt_cookies, verify_jwt_in_request
+from flask_jwt_extended import get_jwt, get_jwt_identity, set_access_cookies, set_refresh_cookies, unset_jwt_cookies, verify_jwt_in_request
 
 from apps.app import BLACKLIST
 from apps.service.user_service import UserService
@@ -13,8 +13,8 @@ class AuthController(Resource):
     @staticmethod
     def _login():
         parser = reqparse.RequestParser()
-        parser.add_argument('username', type=str)
-        parser.add_argument('password', type=str)
+        parser.add_argument('username', type=str, location=['form', 'json'])
+        parser.add_argument('password', type=str, location=['form', 'json'])
         data = parser.parse_args()
         username = data['username']
         password = data['password']
@@ -27,7 +27,8 @@ class AuthController(Resource):
 
             response = make_response({
                 "status": "success",
-                "message": "Login Success"
+                "message": "Login Success",
+                "role": result['role']
             }, 200)
             set_access_cookies(response, access_token)
             set_refresh_cookies(response, refresh_token)
@@ -71,6 +72,27 @@ class AuthController(Resource):
                 "status": "error",
                 'message': f"Refresh Failed: {result['message']}",
             }
+
+    @staticmethod
+    def _me():
+        verify_jwt_in_request()
+        claims = get_jwt()
+        identity = get_jwt_identity()
+        return jsonify({
+            "status": "success",
+            "username": identity,
+            "role": claims.get("role", "ADMIN")
+        })
+
+    def get(self, action):
+        if action == 'me':
+            return self._me()
+
+        logger.warning("Unknown auth GET endpoint requested", extra={"path": action, "status_code": 404})
+        return {
+            "status": "error",
+            "message": "Auth endpoint not found"
+        }, 404
 
     def post(self, action):
         if action == 'login':

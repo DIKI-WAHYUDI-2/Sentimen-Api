@@ -14,17 +14,11 @@ class NewsController(Resource):
     def _parse_news_arguments():
         parser = reqparse.RequestParser()
         parser.add_argument("title")
-        parser.add_argument("judul")
         parser.add_argument("published_at")
-        parser.add_argument("tanggal")
         parser.add_argument("source")
-        parser.add_argument("sumber")
         parser.add_argument("url")
-        parser.add_argument("link")
         parser.add_argument("content")
-        parser.add_argument("isi_berita")
         parser.add_argument("sentiment")
-        parser.add_argument("sentimen")
         return parser.parse_args()
 
     @staticmethod
@@ -53,8 +47,9 @@ class NewsController(Resource):
         verify_jwt_in_request()
         page = request.args.get("page", default=1, type=int)
         limit = request.args.get("limit", default=10, type=int)
+        sentiment = request.args.get("sentiment", default=None, type=str)
         logger.info("Fetching paginated news", extra={"path": request.path, "method": request.method})
-        paginated = NewsService.get_paginated_news(page, limit)
+        paginated = NewsService.get_paginated_news(page, limit, sentiment=sentiment)
         news_items = [item.to_dict() for item in paginated.items]
 
         return jsonify(
@@ -115,17 +110,29 @@ class NewsController(Resource):
         logger.info("Fetching sentiment trend data", extra={"year": year})
         return NewsService.get_monthly_sentiment_summary(year), 200
 
+    VALID_SCRAPE_FIELDS = {"keyword", "start_date", "end_date"}
+
     @staticmethod
     def _scrape():
         verify_jwt_in_request()
         try:
             payload = request.get_json(silent=True)
             if not isinstance(payload, dict) or not payload:
-                payload = request.form.to_dict() or request.args.to_dict() or {}
-
-            if not payload:
                 logger.warning("Scrape request body is missing", extra={"status_code": 400})
                 return {"message": "Request body is required"}, 400
+
+            unknown_fields = set(payload.keys()) - NewsController.VALID_SCRAPE_FIELDS
+            if unknown_fields:
+                logger.warning("Scrape request contains unknown fields", extra={"fields": list(unknown_fields)})
+                return {"message": f"Unknown fields: {', '.join(sorted(unknown_fields))}."}, 400
+
+            if not payload.get("keyword"):
+                logger.warning("Scrape request missing keyword", extra={"status_code": 400})
+                return {"message": "Field 'keyword' is required"}, 400
+
+            if not payload.get("start_date"):
+                logger.warning("Scrape request missing start_date", extra={"status_code": 400})
+                return {"message": "Field 'start_date' is required"}, 400
 
             logger.info("Running scrape pipeline")
             result = NewsService.scrape_classify_and_save(payload)

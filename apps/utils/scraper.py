@@ -114,11 +114,8 @@ def resolve_date_range(search_params):
     start_date_value = search_params.get("start_date")
     end_date_value = search_params.get("end_date")
 
-    if not start_date_value and not end_date_value:
-        return None, None
-
     if not start_date_value:
-        raise ValueError("start_date is required")
+        raise ValueError("Field 'start_date' is required")
 
     parsed_start = normalize_date_input(start_date_value)
     parsed_end = normalize_date_input(end_date_value) if end_date_value else parsed_start
@@ -130,9 +127,9 @@ def resolve_date_range(search_params):
 def resolve_search_queries(search_params):
     selected_keyword = (search_params.get("keyword") or "").strip()
     if not selected_keyword:
-        return [SEARCH_TOPICS[0]]
+        raise ValueError("Field 'keyword' is required")
     if selected_keyword not in SEARCH_TOPICS:
-        raise ValueError("Keyword scraping tidak valid")
+        raise ValueError(f"Invalid keyword. Allowed values: {', '.join(SEARCH_TOPICS)}")
     return [selected_keyword]
 
 

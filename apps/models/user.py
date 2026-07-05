@@ -5,9 +5,11 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(100), nullable=False)
     password = db.Column(db.String(100), nullable=False)
+    role = db.Column(db.String(50), nullable=False, default='ADMIN')
 
     def to_dict(self):
         return {
             'id': self.id,
-            'username': self.username
+            'username': self.username,
+            'role': self.role
         }

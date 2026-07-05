@@ -14,7 +14,7 @@ class News(db.Model):
 
     def to_dict(self):
         published_date = self.published_at.isoformat() if self.published_at else None
-        payload = {
+        return {
             "id": self.id,
             "title": self.title,
             "published_at": published_date,
@@ -23,14 +23,3 @@ class News(db.Model):
             "content": self.content,
             "sentiment": self.sentiment,
         }
-        payload.update(
-            {
-                "judul": self.title,
-                "tanggal": published_date,
-                "sumber": self.source,
-                "link": self.url,
-                "isi_berita": self.content,
-                "sentimen": self.sentiment,
-            }
-        )
-        return payload

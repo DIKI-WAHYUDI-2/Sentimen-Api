@@ -16,12 +16,14 @@ class UserService:
                 "status": "error",
                 "message": "Incorrect password"
             }
-        access_token = create_access_token(identity=user.username)
-        refresh_token = create_refresh_token(identity=user.username)
+        additional_claims = {"role": user.role}
+        access_token = create_access_token(identity=user.username, additional_claims=additional_claims)
+        refresh_token = create_refresh_token(identity=user.username, additional_claims=additional_claims)
         return {
             "status": "success",
             "access_token": access_token,
-            "refresh_token": refresh_token
+            "refresh_token": refresh_token,
+            "role": user.role
         }
 
     @staticmethod

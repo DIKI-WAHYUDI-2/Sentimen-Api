@@ -43,8 +43,11 @@ class NewsRepository:
         return News.query.all()
 
     @staticmethod
-    def find_paginated(page, limit):
-        query = News.query.order_by(News.published_at.desc(), News.id.desc())
+    def find_paginated(page, limit, sentiment=None):
+        query = News.query
+        if sentiment:
+            query = query.filter(News.sentiment.ilike(sentiment))
+        query = query.order_by(News.published_at.desc(), News.id.desc())
         return query.paginate(page=page, per_page=limit, error_out=False)
 
     @staticmethod
@@ -82,6 +85,15 @@ class NewsRepository:
             .all()
         )
 
+    SENTIMENT_DISPLAY_MAP = {
+        "positive": "Positif",
+        "positif": "Positif",
+        "negative": "Negatif",
+        "negatif": "Negatif",
+        "neutral": "Netral",
+        "netral": "Netral",
+    }
+
     @staticmethod
     def get_sentiment_data():
         try:
@@ -90,7 +102,16 @@ class NewsRepository:
                 .group_by(News.sentiment)
                 .all()
             )
-            return [{"name": sentiment.capitalize(), "value": count} for sentiment, count in results]
+
+            aggregated = {}
+            for sentiment, count in results:
+                normalized_key = (sentiment or "").strip().lower()
+                display_name = NewsRepository.SENTIMENT_DISPLAY_MAP.get(
+                    normalized_key, (sentiment or "").capitalize()
+                )
+                aggregated[display_name] = aggregated.get(display_name, 0) + count
+
+            return [{"name": name, "value": value} for name, value in aggregated.items()]
         except Exception:
             logger.exception("Failed to load sentiment data")
             return []

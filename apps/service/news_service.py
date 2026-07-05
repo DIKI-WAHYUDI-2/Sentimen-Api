@@ -54,22 +54,14 @@ class NewsService:
         raise ValueError("Invalid date value")
 
     @staticmethod
-    def _get_value(data, primary_key, fallback_key=None):
-        if primary_key in data and data.get(primary_key) is not None:
-            return data.get(primary_key)
-        if fallback_key and fallback_key in data:
-            return data.get(fallback_key)
-        return None
-
-    @staticmethod
     def normalize_news_payload(data):
         return {
-            "title": NewsService._get_value(data, "title", "judul"),
-            "published_at": NewsService._get_value(data, "published_at", "tanggal"),
-            "source": NewsService._get_value(data, "source", "sumber"),
-            "url": NewsService._get_value(data, "url", "link"),
-            "content": NewsService._get_value(data, "content", "isi_berita"),
-            "sentiment": NewsService._get_value(data, "sentiment", "sentimen"),
+            "title": data.get("title"),
+            "published_at": data.get("published_at"),
+            "source": data.get("source"),
+            "url": data.get("url"),
+            "content": data.get("content"),
+            "sentiment": data.get("sentiment"),
         }
 
     @staticmethod
@@ -77,8 +69,8 @@ class NewsService:
         return NewsRepository.find_all()
 
     @staticmethod
-    def get_paginated_news(page, limit):
-        return NewsRepository.find_paginated(page, limit)
+    def get_paginated_news(page, limit, sentiment=None):
+        return NewsRepository.find_paginated(page, limit, sentiment=sentiment)
 
     @staticmethod
     def create_news(data):
@@ -87,7 +79,7 @@ class NewsService:
         missing_fields = [field for field in required_fields if not payload.get(field)]
         if missing_fields:
             missing_field_list = ", ".join(missing_fields)
-            raise ValueError(f"Missing required fields: {missing_field_list}")
+            raise ValueError(f"Missing required fields")
 
         news_item = News(
             title=payload.get("title"),
